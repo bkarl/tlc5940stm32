@@ -20,3 +20,6 @@ val is the brigthness value of the channel in 4095 steps. Call updateTLC() to co
 
 void resetTLC() resets all channels to zero. 
 
+TODO: 
+Do the GSCLK pulse with a PWM output of the chip.
+Add support for chained TLCs.
