@@ -1,5 +1,26 @@
 #include "tlc.h"
 
+//replace TIM2 with your desired Timer...
+void TIM2_IRQHandler(void)
+{
+    TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
+
+    clkCnt++;
+    //if we have 4096 pulses we need to Blank and start over.
+    if (clkCnt == 4095)
+    {
+        GPIO_WriteBit(tlcConf.gpioCntrl, tlcConf.pinBlank, SET);
+        return;
+    }
+    else if (clkCnt == 4096)
+    {
+        GPIO_WriteBit(tlcConf.gpioCntrl, tlcConf.pinBlank, RESET);
+        clkCnt = 0;
+    }
+}
+
+/*
+not neede since we use the PWM output to genereate GSCLK
 void cycleTLC()
 {
     uint16_t i;
@@ -13,6 +34,8 @@ void cycleTLC()
     GPIO_WriteBit(tlcConf.gpioCntrl, tlcConf.pinBlank, SET);
     GPIO_WriteBit(tlcConf.gpioCntrl, tlcConf.pinBlank, RESET);
 }
+*/
+
 
 void setTLCChannel(uint8_t channel, uint16_t val)
 {
@@ -30,22 +53,23 @@ void delay(uint16_t d)
 //init all GPIOs, timers, spi...
 void initTLC(TLC_InitStruct* tlc)
 {
-
+    clkCnt = 0;
     tlcConf = *tlc;
 
     SPI_InitTypeDef SPI_InitStructure;
     GPIO_InitTypeDef GPIO_InitStructure;
 
-    //init GPIOs
+    /*****************************************************
+                        INIT GPIOs
+    ******************************************************/
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
-    GPIO_InitStructure.GPIO_Pin = tlcConf.pinBlank | tlcConf.pinXLAT | tlcConf.pinGSCLK;
+    GPIO_InitStructure.GPIO_Pin = tlcConf.pinBlank | tlcConf.pinXLAT;
     GPIO_Init(tlcConf.gpioCntrl, &GPIO_InitStructure);
 
-    //initial setup
-    GPIO_WriteBit(tlcConf.gpioCntrl, tlcConf.pinBlank | tlcConf.pinXLAT | tlcConf.pinGSCLK, RESET);
-
-    /*SPI*/
+    /*****************************************************
+                            SPI
+    ******************************************************/
     GPIO_InitStructure.GPIO_Pin = tlcConf.pinCLK | tlcConf.pinMOSI;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
@@ -66,8 +90,11 @@ void initTLC(TLC_InitStruct* tlc)
     SPI_InitStructure.SPI_Mode = SPI_Mode_Master;
     SPI_InitStructure.SPI_NSS = SPI_NSS_Soft;
     SPI_Init(tlcConf.spi, &SPI_InitStructure);
-
+    //enable SPI
     SPI_Cmd(tlcConf.spi, ENABLE);
+
+    //initial setup
+    GPIO_WriteBit(tlcConf.gpioCntrl, tlcConf.pinBlank | tlcConf.pinXLAT, RESET);
 
     //disable all outputs
     resetTLC();
@@ -82,7 +109,6 @@ void resetTLC()
         leds[i] = 0x0000;
     }
     updateTLC();
-
 }
 //write a byte to the chip
 void writeTLC(uint8_t data)
@@ -91,9 +117,13 @@ void writeTLC(uint8_t data)
     while (SPI_I2S_GetFlagStatus(tlcConf.spi, SPI_I2S_FLAG_TXE) == RESET);
 }
 
-//write new data to chip - i hope everything is right here
+//write new data to the chip
 void updateTLC()
 {
+    //wait for the current gsclk cycle to finish
+    while (clkCnt);
+    //disable GSCLK output
+    TIM_Cmd(tlcConf.timer, DISABLE);
     GPIO_WriteBit(tlcConf.gpioCntrl, tlcConf.pinBlank, SET);
     delay(1);
     int8_t i;
@@ -119,4 +149,7 @@ void updateTLC()
     GPIO_WriteBit(tlcConf.gpioCntrl, tlcConf.pinBlank, RESET);
     GPIO_WriteBit(tlcConf.gpioCntrl, tlcConf.pinXLAT, RESET);
     delay(1);
+    clkCnt = 0;
+    TIM_Cmd(tlcConf.timer, ENABLE);
+
 }
